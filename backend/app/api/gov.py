@@ -17,6 +17,15 @@ async def get_gov_dashboard(
     return await service.get_dashboard_stats()
 
 
+@router.get("/operations")
+async def get_operations_dashboard(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    service = GovService(db)
+    return await service.get_operations_dashboard()
+
+
 @router.get("/heatmaps")
 async def get_heatmap_coordinates(
     db: AsyncSession = Depends(get_db),

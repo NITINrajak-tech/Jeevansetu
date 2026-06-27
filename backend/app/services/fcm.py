@@ -1,10 +1,12 @@
 import os
+
 import firebase_admin
 from firebase_admin import credentials, messaging
+
 from app.core.config import settings
 from app.core.logging import logger
 
-# Initialize Firebase App if credential file exists
+
 firebase_initialized = False
 try:
     if os.path.exists(settings.FIREBASE_CREDENTIALS_PATH):
@@ -17,24 +19,24 @@ try:
             f"Firebase key not found at {settings.FIREBASE_CREDENTIALS_PATH}. Running FCM in MOCK logging mode."
         )
 except Exception as e:
-    logger.error(f"FCM Initialization failed: {e}. Falling back to MOCK mode.")
+    logger.error(f"FCM initialization failed: {e}. Falling back to MOCK mode.")
 
 
 class FCMNotificationService:
     @staticmethod
     def send_multicast_notification(
-        tokens: list[str], title: str, body: str, data: dict = None
+        tokens: list[str],
+        title: str,
+        body: str,
+        data: dict | None = None,
     ) -> bool:
-        if not tokens:
+        valid_tokens = [token for token in tokens if token]
+        if not valid_tokens:
             return False
 
         logger.info(
-            f"FCM Broadcast — Title: '{title}' | Body: '{body}' | Recipients: {len(tokens)}"
+            f"FCM broadcast - Title: '{title}' | Body: '{body}' | Recipients: {len(valid_tokens)}"
         )
-
-        valid_tokens = [t for t in tokens if t]
-        if not valid_tokens:
-            return False
 
         if firebase_initialized:
             try:
@@ -43,7 +45,7 @@ class FCMNotificationService:
                         title=title,
                         body=body,
                     ),
-                    data=data or {},
+                    data={key: str(value) for key, value in (data or {}).items()},
                     tokens=valid_tokens,
                 )
                 response = messaging.send_multicast(message)
@@ -52,24 +54,27 @@ class FCMNotificationService:
                 )
                 return response.failure_count == 0
             except Exception as e:
-                logger.error(f"Firebase Multicast delivery error: {e}")
+                logger.error(f"Firebase multicast delivery error: {e}")
                 return False
-        else:
-            # Mock Logging Output
-            logger.info("--- MOCK FCM NOTIFICATION SENT ---")
-            logger.info(f"TO TOKENS: {valid_tokens}")
-            logger.info(f"TITLE: {title}")
-            logger.info(f"BODY: {body}")
-            logger.info(f"DATA PAYLOAD: {data}")
-            logger.info("----------------------------------")
-            return True
+
+        logger.info("--- MOCK FCM NOTIFICATION SENT ---")
+        logger.info(f"TO TOKENS: {valid_tokens}")
+        logger.info(f"TITLE: {title}")
+        logger.info(f"BODY: {body}")
+        logger.info(f"DATA PAYLOAD: {data}")
+        logger.info("----------------------------------")
+        return True
 
     @classmethod
     def notify_emergency_contacts(
-        cls, contact_tokens: list[str], victim_name: str, accident_id: str, maps_link: str
-    ):
-        title = "⚠ EMERGENCY: Possible Accident Detected!"
-        body = f"{victim_name} may have been in a crash. Click to track location."
+        cls,
+        contact_tokens: list[str],
+        victim_name: str,
+        accident_id: str,
+        maps_link: str,
+    ) -> bool:
+        title = "EMERGENCY: Possible Accident Detected"
+        body = f"{victim_name} may have been in a crash. Location: {maps_link}"
         payload = {
             "type": "accident_alert",
             "accident_id": str(accident_id),
@@ -80,10 +85,13 @@ class FCMNotificationService:
 
     @classmethod
     def send_sos_alert(
-        cls, contact_tokens: list[str], victim_name: str, maps_link: str
-    ):
-        title = "🚨 EMERGENCY SOS ACTIVATED!"
-        body = f"{victim_name} has manually activated SOS. Click to track their live coordinates."
+        cls,
+        contact_tokens: list[str],
+        victim_name: str,
+        maps_link: str,
+    ) -> bool:
+        title = "EMERGENCY SOS ACTIVATED"
+        body = f"{victim_name} has manually activated SOS. Location: {maps_link}"
         payload = {
             "type": "sos_alert",
             "maps_link": maps_link,
