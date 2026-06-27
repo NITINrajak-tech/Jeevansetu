@@ -4,8 +4,7 @@ from app.ai.model_service import AISeverityService
 from app.models.accident import Accident
 from app.repositories.accident import AccidentRepository
 from app.repositories.user import UserRepository
-from app.repositories.emergency_contact import EmergencyContactRepository
-from app.services.fcm import FCMNotificationService
+from app.services.notification_engine import NotificationEngine
 from app.schemas.accident import AccidentCreate
 
 
@@ -14,7 +13,6 @@ class AccidentService:
         self.db = db
         self.accident_repo = AccidentRepository(db)
         self.user_repo = UserRepository(db)
-        self.contact_repo = EmergencyContactRepository(db)
 
     async def report_accident(self, user_id: str, accident_in: AccidentCreate) -> Accident:
         # Fetch user
@@ -45,27 +43,23 @@ class AccidentService:
         }
         accident = await self.accident_repo.create(accident_dict)
 
-        # Notify emergency contacts via FCM
+        # Notify family, friends, and nearby volunteers via FCM.
         try:
-            contacts = await self.contact_repo.get_by_user(user_id)
-            tokens = []
-            for c in contacts:
-                # Find matching user registered in system by phone number
-                contact_user = await self.user_repo.get_by_phone(c.phone)
-                if contact_user and contact_user.fcm_token:
-                    tokens.append(contact_user.fcm_token)
-
-            if tokens:
-                maps_link = f"https://www.google.com/maps/search/?api=1&query={accident.latitude},{accident.longitude}"
-                FCMNotificationService.notify_emergency_contacts(
-                    contact_tokens=tokens,
-                    victim_name=user.name,
-                    accident_id=str(accident.id),
-                    maps_link=maps_link,
-                )
-        except Exception:
+            await NotificationEngine(self.db).notify_accident(
+                user_id=str(user_id),
+                victim_name=user.name,
+                latitude=accident.latitude,
+                longitude=accident.longitude,
+                severity=accident.severity,
+                accident_id=str(accident.id),
+                message="Possible Accident Detected",
+                radius_km=5.0,
+            )
+        except Exception as exc:
             # Silence exceptions in notifications to ensure report transaction completes successfully
-            pass
+            from app.core.logging import logger
+
+            logger.error(f"Notification engine failed for accident {accident.id}: {exc}")
 
         return accident
 

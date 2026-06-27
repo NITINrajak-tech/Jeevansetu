@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.accident import Accident
 from app.models.hospital import Hospital
 from app.models.volunteer import Volunteer
+from app.services.notification_engine import NotificationEngine
+from app.services.volunteers import VolunteerService
 
 
 class GovService:
@@ -45,6 +47,78 @@ class GovService:
             "active_volunteers": active_volunteers,
             "fatality_rate_reduction_percentage": 24.5
         }
+
+    async def get_operations_dashboard(self) -> dict:
+        incident_query = (
+            select(Accident)
+            .where(Accident.status == "pending")
+            .order_by(Accident.created_at.desc())
+            .limit(20)
+        )
+        incident_result = await self.db.execute(incident_query)
+        incidents = incident_result.scalars().all()
+
+        notification_engine = NotificationEngine(self.db)
+        volunteer_service = VolunteerService(self.db)
+        incident_rows = []
+
+        for incident in incidents:
+            nearby = await volunteer_service.get_nearby_volunteers(
+                incident.latitude,
+                incident.longitude,
+                max_radius_km=5.0,
+                limit=5,
+            )
+            incident_rows.append(
+                {
+                    "incident_id": str(incident.id),
+                    "location": notification_engine.maps_link(
+                        incident.latitude,
+                        incident.longitude,
+                    ),
+                    "latitude": incident.latitude,
+                    "longitude": incident.longitude,
+                    "severity": incident.severity.title(),
+                    "risk_score": incident.risk_score,
+                    "victim_status": incident.status,
+                    "volunteer_status": "notified" if nearby else "searching",
+                    "nearby_volunteers": len(nearby),
+                    "volunteer_search": await notification_engine.volunteer_radius_summary(
+                        incident.latitude,
+                        incident.longitude,
+                    ),
+                    "recommended_hospital": "Use /api/best-hospital for live recommendation",
+                    "eta": "calculated by ambulance/hospital services",
+                    "created_at": incident.created_at.isoformat(),
+                }
+            )
+
+        dashboard = await self.get_dashboard_stats()
+        dashboard["operations"] = {
+            "active_incidents": incident_rows,
+            "live_map": {
+                "provider": "OpenStreetMap/Mapbox-ready",
+                "default_zoom": 14,
+                "incident_markers": [
+                    {
+                        "incident_id": row["incident_id"],
+                        "latitude": row["latitude"],
+                        "longitude": row["longitude"],
+                        "severity": row["severity"],
+                        "status": row["victim_status"],
+                        "maps_link": row["location"],
+                    }
+                    for row in incident_rows
+                ],
+                "volunteer_radius_km": [1, 3, 5],
+            },
+            "notification_channels": ["Family", "Friends", "Volunteers"],
+            "realtime": {
+                "location_updates": "WebSocket",
+                "push_alerts": "Firebase Cloud Messaging",
+            },
+        }
+        return dashboard
 
     async def get_heatmap_coordinates(self) -> list:
         # Fetch all accident coordinates

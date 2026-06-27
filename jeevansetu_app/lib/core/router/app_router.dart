@@ -14,6 +14,7 @@ import '../../features/emergency/presentation/screens/emergency_contacts_screen.
 import '../../features/tracking/presentation/screens/live_tracking_screen.dart';
 import '../../features/hospital/presentation/screens/hospital_recommendation_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
+import '../../features/dashboard/presentation/screens/operations_dashboard_screen.dart';
 
 /// Route name constants
 class AppRoutes {
@@ -27,6 +28,7 @@ class AppRoutes {
   static const String emergencyContacts = 'emergency-contacts';
   static const String liveTracking = 'live-tracking';
   static const String hospitals = 'hospitals';
+  static const String dashboard = 'dashboard';
   static const String profile = 'profile';
 }
 
@@ -60,8 +62,10 @@ class _MainShellState extends State<_MainShell> {
     final location = widget.state.uri.toString();
     if (location.startsWith('/contacts')) {
       _currentIndex = 1;
-    } else if (location.startsWith('/profile')) {
+    } else if (location.startsWith('/dashboard')) {
       _currentIndex = 2;
+    } else if (location.startsWith('/profile')) {
+      _currentIndex = 3;
     } else {
       _currentIndex = 0;
     }
@@ -92,6 +96,9 @@ class _MainShellState extends State<_MainShell> {
                 context.goNamed(AppRoutes.emergencyContacts);
                 break;
               case 2:
+                context.goNamed(AppRoutes.dashboard);
+                break;
+              case 3:
                 context.goNamed(AppRoutes.profile);
                 break;
             }
@@ -106,6 +113,11 @@ class _MainShellState extends State<_MainShell> {
               icon: Icon(Icons.contacts_outlined),
               activeIcon: Icon(Icons.contacts_rounded),
               label: 'Contacts',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard_outlined),
+              activeIcon: Icon(Icons.dashboard_rounded),
+              label: 'Ops',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.person_outline_rounded),
@@ -161,6 +173,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/contacts',
             name: AppRoutes.emergencyContacts,
             builder: (context, state) => const EmergencyContactsScreen(),
+          ),
+          GoRoute(
+            path: '/dashboard',
+            name: AppRoutes.dashboard,
+            builder: (context, state) => const OperationsDashboardScreen(),
           ),
           GoRoute(
             path: '/profile',

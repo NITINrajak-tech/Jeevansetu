@@ -51,3 +51,19 @@ async def get_nearby_volunteers(
 ):
     service = VolunteerService(db)
     return await service.get_nearby_volunteers(latitude, longitude, radius_km, limit)
+
+
+@router.get("/search-radii")
+async def get_volunteer_search_radii(
+    latitude: float,
+    longitude: float,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    from app.services.notification_engine import NotificationEngine
+
+    return {
+        "search_strategy": "1 km -> 3 km -> 5 km",
+        "message": "Emergency nearby. Can you help?",
+        "radii": await NotificationEngine(db).volunteer_radius_summary(latitude, longitude),
+    }

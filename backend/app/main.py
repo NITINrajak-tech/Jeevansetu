@@ -22,6 +22,7 @@ from app.api.volunteers import router as volunteers_router
 from app.api.ambulances import router as ambulances_router
 from app.api.first_aid import router as first_aid_router
 from app.api.gov import router as gov_router
+from app.api.notifications import router as notifications_router
 
 
 # Async Startup/Shutdown lifespan manager
@@ -126,6 +127,7 @@ app.include_router(volunteers_router, prefix=settings.API_STR)
 app.include_router(ambulances_router, prefix=settings.API_STR)
 app.include_router(first_aid_router, prefix=settings.API_STR)
 app.include_router(gov_router, prefix=settings.API_STR)
+app.include_router(notifications_router, prefix=settings.API_STR)
 
 
 @app.get("/")
