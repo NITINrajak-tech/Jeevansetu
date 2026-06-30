@@ -47,10 +47,13 @@ class _LiveTrackingScreenState extends ConsumerState<LiveTrackingScreen> {
           // Fullscreen map placeholder
           Positioned.fill(
             child: MapPlaceholder(
-              ambulanceLat: state.ambulanceLat,
-              ambulanceLng: state.ambulanceLng,
-              userLat: 28.6139,
-              userLng: 77.2090,
+              victimLatitude: 28.6139,
+              victimLongitude: 77.2090,
+              hospitalLatitude: 28.6220,
+              hospitalLongitude: 77.2100,
+              ambulanceLocations: [
+                [state.ambulanceLat, state.ambulanceLng],
+              ],
             ),
           ),
 

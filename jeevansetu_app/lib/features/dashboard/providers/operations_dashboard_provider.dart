@@ -70,6 +70,9 @@ class OperationsDashboardNotifier
   // ── WebSocket ─────────────────────────────────────────────────────────────
 
   void _connectWebSocket() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+
     try {
       final base = AppConstants.backendBaseUrl
           .replaceFirst('http://', 'ws://')
@@ -77,16 +80,16 @@ class OperationsDashboardNotifier
 
       final uri = Uri.parse('$base/gov/ws');
 
+      _wsChannel?.sink.close();
+      _wsSub?.cancel();
       _wsChannel = WebSocketChannel.connect(uri);
       _wsSub = _wsChannel!.stream.listen(
         _onWsMessage,
         onError: _onWsError,
         onDone: _onWsDone,
+        cancelOnError: true,
       );
-
-      state = state.copyWith(isLive: true, clearErrorMessage: true);
     } catch (_) {
-      // WebSocket unavailable — fall back to HTTP polling.
       _startPolling();
     }
   }
@@ -112,6 +115,8 @@ class OperationsDashboardNotifier
   }
 
   void _onWsError(Object error) {
+    _wsSub?.cancel();
+    _wsSub = null;
     state = state.copyWith(
       isLive: false,
       errorMessage: 'Live feed error — switching to polling.',
@@ -120,8 +125,10 @@ class OperationsDashboardNotifier
   }
 
   void _onWsDone() {
+    _wsSub?.cancel();
+    _wsSub = null;
     state = state.copyWith(isLive: false);
-    // Reconnect after a delay.
+    _startPolling();
     Future.delayed(const Duration(seconds: 10), () {
       if (mounted) _connectWebSocket();
     });

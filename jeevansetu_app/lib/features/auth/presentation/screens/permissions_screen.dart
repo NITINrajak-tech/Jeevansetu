@@ -36,8 +36,15 @@ class _PermissionsScreenState extends ConsumerState<PermissionsScreen> {
       try {
         await _deviceTokenService.syncTokenToBackend();
       } catch (_) {}
+    } else if (!_deviceTokenService.isMessagingAvailable) {
+      // On web or unsupported environments, treat missing messaging support as a soft success
+      ref.read(authProvider.notifier).toggleNotificationsPermission();
+      return true;
+    } else {
+      // If messaging is available but permission was denied, we still allow toggle for UI flow.
+      ref.read(authProvider.notifier).toggleNotificationsPermission();
     }
-    return granted;
+    return true;
   }
 
   Future<void> _grantAll() async {
