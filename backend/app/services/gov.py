@@ -81,7 +81,8 @@ class GovService:
                     "severity": incident.severity.title(),
                     "risk_score": incident.risk_score,
                     "victim_status": incident.status,
-                    "volunteer_status": "notified" if nearby else "searching",
+                    "volunteer_status": incident.volunteer_status if incident.volunteer_status else ("notified" if nearby else "searching"),
+                    "assigned_volunteer_id": str(incident.assigned_volunteer_id) if incident.assigned_volunteer_id else None,
                     "nearby_volunteers": len(nearby),
                     "volunteer_search": await notification_engine.volunteer_radius_summary(
                         incident.latitude,
@@ -106,6 +107,7 @@ class GovService:
                         "longitude": row["longitude"],
                         "severity": row["severity"],
                         "status": row["victim_status"],
+                        "volunteer_status": row["volunteer_status"],
                         "maps_link": row["location"],
                     }
                     for row in incident_rows

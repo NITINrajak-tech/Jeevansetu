@@ -27,6 +27,11 @@ class Settings(BaseSettings):
     # Firebase
     FIREBASE_CREDENTIALS_PATH: str = "/workspace/firebase-key.json"
 
+    # Auth / roles
+    DEFAULT_USER_ROLE: str = "user"
+    ADMIN_ROLES: List[str] = ["admin", "gov"]
+    SEED_DEFAULT_DATA: bool = True
+
     # AI Model
     MODEL_PATH: str = "app/ai/model.joblib"
 

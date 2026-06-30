@@ -9,7 +9,7 @@ class AppConstants {
     'JEEVANSETU_API_BASE_URL',
     defaultValue: 'http://localhost:8000/api',
   );
-  static const String backendAuthToken = String.fromEnvironment(
+  static String backendAuthToken = const String.fromEnvironment(
     'JEEVANSETU_AUTH_TOKEN',
     defaultValue: '',
   );

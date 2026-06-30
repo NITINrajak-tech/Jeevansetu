@@ -5,6 +5,7 @@ from app.models.accident import Accident
 from app.repositories.accident import AccidentRepository
 from app.repositories.user import UserRepository
 from app.services.notification_engine import NotificationEngine
+from app.services.volunteers import VolunteerService
 from app.schemas.accident import AccidentCreate
 
 
@@ -43,6 +44,13 @@ class AccidentService:
         }
         accident = await self.accident_repo.create(accident_dict)
 
+        try:
+            await VolunteerService(self.db).assign_nearest_volunteer(accident)
+        except Exception as exc:
+            from app.core.logging import logger
+
+            logger.error(f"Volunteer assignment failed for accident {accident.id}: {exc}")
+
         # Notify family, friends, and nearby volunteers via FCM.
         try:
             await NotificationEngine(self.db).notify_accident(
@@ -60,6 +68,27 @@ class AccidentService:
             from app.core.logging import logger
 
             logger.error(f"Notification engine failed for accident {accident.id}: {exc}")
+
+        # Broadcast to connected government dashboards via WebSocket
+        try:
+            from app.websocket.connection_manager import manager
+            await manager.broadcast_gov({
+                "type": "accident_reported",
+                "accident": {
+                    "incident_id": str(accident.id),
+                    "latitude": accident.latitude,
+                    "longitude": accident.longitude,
+                    "severity": accident.severity.title(),
+                    "risk_score": accident.risk_score,
+                    "victim_status": accident.status,
+                    "volunteer_status": accident.volunteer_status,
+                    "assigned_volunteer_id": str(accident.assigned_volunteer_id) if accident.assigned_volunteer_id else None,
+                    "created_at": accident.created_at.isoformat() if hasattr(accident.created_at, "isoformat") else str(accident.created_at),
+                }
+            })
+        except Exception as ws_exc:
+            from app.core.logging import logger
+            logger.error(f"WebSocket broadcast failed for reported accident {accident.id}: {ws_exc}")
 
         return accident
 

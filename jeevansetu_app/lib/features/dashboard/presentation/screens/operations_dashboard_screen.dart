@@ -7,6 +7,7 @@ import '../../../../core/constants/app_constants.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
+import '../../providers/operations_dashboard_provider.dart';
 import '../../../tracking/providers/tracking_provider.dart';
 import '../widgets/operations_live_map.dart';
 
@@ -25,20 +26,34 @@ class _OperationsDashboardScreenState
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(trackingProvider.notifier).startSimulatingTracking();
+      ref.read(operationsDashboardProvider.notifier).start();
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(trackingProvider);
+    final opsState = ref.watch(operationsDashboardProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final operations = opsState.payload?['operations'] as Map<String, dynamic>?;
+    final incidents = (operations?['active_incidents'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    final liveMarkers = (operations?['live_map']?['incident_markers'] as List<dynamic>? ?? const [])
+        .cast<Map<String, dynamic>>();
+    final firstIncident = incidents.isNotEmpty ? incidents.first : null;
+    final victimLat = (firstIncident?['latitude'] as num?)?.toDouble() ?? AppConstants.mockLatitude;
+    final victimLng = (firstIncident?['longitude'] as num?)?.toDouble() ?? AppConstants.mockLongitude;
+    final severity = firstIncident?['severity']?.toString() ?? 'Critical';
 
     return Scaffold(
       backgroundColor: isDark ? AppColors.surfaceDark : AppColors.surfaceLight,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
-          child: Column(
+        child: RefreshIndicator(
+          onRefresh: () => ref.read(operationsDashboardProvider.notifier).refresh(),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
@@ -72,16 +87,25 @@ class _OperationsDashboardScreenState
                   ),
                 ],
               ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () => context.pushNamed(AppRoutes.ambulanceDashboard),
+                  icon: const Icon(Icons.local_taxi_rounded),
+                  label: const Text('Open Ambulance Dispatch'),
+                ),
+              ),
               const SizedBox(height: 18),
               SizedBox(
                 height: 360,
                 width: double.infinity,
                 child: OperationsLiveMap(
-                  victimLat: AppConstants.mockLatitude,
-                  victimLng: AppConstants.mockLongitude,
+                  victimLat: victimLat,
+                  victimLng: victimLng,
                   responderLat: state.ambulanceLat,
                   responderLng: state.ambulanceLng,
-                  severity: 'Critical',
+                  severity: severity,
                 ),
               ).animate().fade(duration: 350.ms).slideY(begin: 0.06, end: 0),
               const SizedBox(height: 18),
@@ -91,7 +115,7 @@ class _OperationsDashboardScreenState
                     child: _MetricTile(
                       icon: Icons.notification_important_rounded,
                       label: 'Alerts',
-                      value: '3 groups',
+                      value: '${operations?['notification_channels']?.length ?? 0} groups',
                       color: AppColors.sosRed,
                     ),
                   ),
@@ -100,7 +124,7 @@ class _OperationsDashboardScreenState
                     child: _MetricTile(
                       icon: Icons.volunteer_activism_rounded,
                       label: 'Volunteers',
-                      value: '5 nearby',
+                      value: '${firstIncident?['nearby_volunteers'] ?? 0} nearby',
                       color: AppColors.warningAmber,
                     ),
                   ),
@@ -113,7 +137,7 @@ class _OperationsDashboardScreenState
                     child: _MetricTile(
                       icon: Icons.local_hospital_rounded,
                       label: 'Hospital',
-                      value: state.hospitalName,
+                      value: firstIncident?['recommended_hospital']?.toString() ?? state.hospitalName,
                       color: AppColors.safeGreen,
                     ),
                   ),
@@ -122,7 +146,7 @@ class _OperationsDashboardScreenState
                     child: _MetricTile(
                       icon: Icons.timer_rounded,
                       label: 'ETA',
-                      value: '${state.etaMinutes} min',
+                      value: firstIncident?['eta']?.toString() ?? '${state.etaMinutes} min',
                       color: AppColors.infoBlue,
                     ),
                   ),
@@ -132,6 +156,10 @@ class _OperationsDashboardScreenState
               _OperationsPanel(
                 status: _statusText(state.status),
                 distanceKm: state.distanceKm,
+                incidents: incidents,
+                operations: operations,
+                errorMessage: opsState.errorMessage,
+                lastUpdated: opsState.lastUpdated,
               ),
             ],
           ),
@@ -210,10 +238,18 @@ class _MetricTile extends StatelessWidget {
 class _OperationsPanel extends StatelessWidget {
   final String status;
   final double distanceKm;
+  final List<Map<String, dynamic>> incidents;
+  final Map<String, dynamic>? operations;
+  final String? errorMessage;
+  final DateTime? lastUpdated;
 
   const _OperationsPanel({
     required this.status,
     required this.distanceKm,
+    required this.incidents,
+    required this.operations,
+    required this.errorMessage,
+    required this.lastUpdated,
   });
 
   @override
@@ -243,19 +279,21 @@ class _OperationsPanel extends StatelessWidget {
           _StatusRow(
             icon: Icons.warning_amber_rounded,
             label: 'Severity',
-            value: 'Critical',
+            value: incidents.isNotEmpty ? incidents.first['severity']?.toString() ?? 'Critical' : 'Critical',
             color: AppColors.criticalRed,
           ),
           _StatusRow(
             icon: Icons.notifications_active_rounded,
             label: 'FCM',
-            value: 'Family, Friends, Volunteers notified',
+            value: operations?['realtime']?['push_alerts']?.toString() ?? 'Family, Friends, Volunteers notified',
             color: AppColors.primary,
           ),
           _StatusRow(
             icon: Icons.radar_rounded,
             label: 'Volunteer Search',
-            value: '1 km -> 3 km -> 5 km active',
+            value: incidents.isNotEmpty
+                ? '1 km -> 3 km -> 5 km, ${incidents.first['volunteer_status'] ?? 'searching'}'
+                : '1 km -> 3 km -> 5 km active',
             color: AppColors.warningAmber,
           ),
           _StatusRow(
@@ -264,6 +302,22 @@ class _OperationsPanel extends StatelessWidget {
             value: '$status, ${distanceKm.toStringAsFixed(1)} km away',
             color: AppColors.infoBlue,
           ),
+          if (lastUpdated != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Last updated ${lastUpdated!.toLocal().hour.toString().padLeft(2, '0')}:${lastUpdated!.toLocal().minute.toString().padLeft(2, '0')}',
+              style: AppTextStyles.labelSmall.copyWith(
+                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              ),
+            ),
+          ],
+          if (errorMessage != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              errorMessage!,
+              style: AppTextStyles.labelSmall.copyWith(color: AppColors.sosRed),
+            ),
+          ],
         ],
       ),
     );

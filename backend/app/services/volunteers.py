@@ -1,9 +1,17 @@
 import math
 from typing import List
+import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models.accident import Accident
 from app.models.volunteer import Volunteer
-from app.schemas.volunteer import VolunteerResponse, VolunteerNearbyResponse, VolunteerCreate, VolunteerUpdate
+from app.schemas.volunteer import (
+    VolunteerResponse,
+    VolunteerNearbyResponse,
+    VolunteerCreate,
+    VolunteerUpdate,
+    VolunteerAssignmentUpdate,
+)
 
 
 class VolunteerService:
@@ -77,3 +85,91 @@ class VolunteerService:
 
         nearby.sort(key=lambda x: x.distance_km)
         return nearby[:limit]
+
+    async def assign_nearest_volunteer(
+        self,
+        accident: Accident,
+        max_radius_km: float = 5.0,
+    ) -> dict:
+        nearby = await self.get_nearby_volunteers(
+            accident.latitude,
+            accident.longitude,
+            max_radius_km=max_radius_km,
+            limit=1,
+        )
+
+        if not nearby:
+            accident.assigned_volunteer_id = None
+            accident.volunteer_status = "searching"
+            self.db.add(accident)
+            await self.db.flush()
+            return {"assigned": False, "status": "searching", "volunteer": None}
+
+        selected = nearby[0].volunteer
+        accident.assigned_volunteer_id = selected.id
+        accident.volunteer_status = "notified"
+        self.db.add(accident)
+        await self.db.flush()
+        return {
+            "assigned": True,
+            "status": "notified",
+            "volunteer": selected,
+            "distance_km": nearby[0].distance_km,
+        }
+
+    async def update_assignment_status(
+        self,
+        accident_id: str,
+        phone: str,
+        assignment_in: VolunteerAssignmentUpdate,
+    ) -> Accident | None:
+        accident_uuid = uuid.UUID(accident_id) if isinstance(accident_id, str) else accident_id
+        accident_result = await self.db.execute(select(Accident).where(Accident.id == accident_uuid))
+        accident = accident_result.scalar_one_or_none()
+        if not accident:
+            return None
+
+        volunteer_result = await self.db.execute(select(Volunteer).where(Volunteer.phone == phone))
+        volunteer = volunteer_result.scalar_one_or_none()
+        if not volunteer:
+            return None
+
+        status = assignment_in.status.strip().lower()
+        if status not in {"accepted", "rejected", "en_route", "arrived"}:
+            raise ValueError("Invalid volunteer assignment status")
+
+        if accident.assigned_volunteer_id and accident.assigned_volunteer_id != volunteer.id:
+            if status != "rejected":
+                return None
+
+        if status == "rejected":
+            accident.assigned_volunteer_id = None
+            accident.volunteer_status = "searching"
+            volunteer.is_available = True
+        else:
+            accident.assigned_volunteer_id = volunteer.id
+            accident.volunteer_status = status
+            volunteer.is_available = False
+
+        self.db.add(accident)
+        self.db.add(volunteer)
+        await self.db.flush()
+
+        # Broadcast to connected government dashboards via WebSocket
+        try:
+            from app.websocket.connection_manager import manager
+            await manager.broadcast_gov({
+                "type": "volunteer_status_updated",
+                "accident_id": str(accident.id),
+                "volunteer_status": accident.volunteer_status,
+                "assigned_volunteer_id": str(accident.assigned_volunteer_id) if accident.assigned_volunteer_id else None,
+                "volunteer_name": volunteer.name,
+                "volunteer_phone": volunteer.phone,
+                "volunteer_lat": volunteer.latitude,
+                "volunteer_lng": volunteer.longitude,
+            })
+        except Exception as ws_exc:
+            from app.core.logging import logger
+            logger.error(f"WebSocket broadcast failed for volunteer status update on accident {accident.id}: {ws_exc}")
+
+        return accident

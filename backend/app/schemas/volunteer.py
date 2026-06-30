@@ -21,6 +21,10 @@ class VolunteerUpdate(BaseModel):
     is_available: bool | None = None
 
 
+class VolunteerAssignmentUpdate(BaseModel):
+    status: str
+
+
 class VolunteerResponse(VolunteerBase):
     id: UUID
 

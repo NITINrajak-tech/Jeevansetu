@@ -58,10 +58,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       });
       _startResendTimer();
 
-      // Show mock toast helper
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Mock OTP sent successfully! (Code: 123456)'),
+          content: Text('OTP sent! (Demo: use 123456 or 1234)'),
           backgroundColor: AppColors.infoBlue,
           duration: Duration(seconds: 4),
         ),
@@ -69,8 +68,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  void _handleVerifyOtp() {
-    final success = ref.read(authProvider.notifier).verifyOtp(_enteredOtp);
+  Future<void> _handleVerifyOtp() async {
+    final success =
+        await ref.read(authProvider.notifier).verifyOtp(_enteredOtp);
+    if (!mounted) return;
     if (success) {
       final authState = ref.read(authProvider);
       if (authState.allPermissionsGranted) {
@@ -79,9 +80,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         context.goNamed(AppRoutes.permissions);
       }
     } else {
+      final errMsg =
+          ref.read(authProvider).errorMessage ?? 'Invalid code. Use 123456';
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Invalid code. Use mock code 123456'),
+        SnackBar(
+          content: Text(errMsg),
           backgroundColor: AppColors.sosRed,
         ),
       );

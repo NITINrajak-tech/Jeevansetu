@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,22 +10,48 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/sos_button.dart';
 import '../../../../core/router/app_router.dart';
 import '../../../../features/auth/providers/auth_provider.dart';
+import '../../../monitoring/providers/sensor_monitor_provider.dart';
 import '../widgets/monitoring_status_card.dart';
 import '../widgets/location_preview_card.dart';
 import '../widgets/recent_activity_card.dart';
 import '../../providers/home_provider.dart';
 
-class HomeScreen extends ConsumerWidget {
+class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(sensorMonitorProvider.notifier).startMonitoring();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final homeState = ref.watch(homeProvider);
     final themeMode = ref.watch(themeModeProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final userName = authState.user?.name ?? 'Driver';
+
+    // ── Crash Detection Listener ───────────────────────────────────────────
+    ref.listen<SensorMonitorState>(sensorMonitorProvider, (previous, next) {
+      if (next.crashDetected && !(previous?.crashDetected ?? false)) {
+        // Acknowledge to prevent re-triggering.
+        ref.read(sensorMonitorProvider.notifier).acknowledgeCrash();
+        // Navigate to accident alert (auto SOS flow).
+        if (mounted) {
+          context.pushNamed(AppRoutes.accidentAlert);
+        }
+      }
+    });
 
     return Scaffold(
       body: Container(

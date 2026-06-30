@@ -8,10 +8,16 @@ services:
     volumes:
       - .:/workspace
     environment:
+      - PROJECT_NAME=Golden Minute AI
+      - API_STR=/api
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/golden_minute
       - REDIS_URL=redis://redis:6379/0
       - SECRET_KEY=supersecretjwtkeythatisproductionreadyandlongenough321
+      - DEFAULT_USER_ROLE=user
+      - ADMIN_ROLES=admin,gov
+      - BACKEND_CORS_ORIGINS=*
       - FIREBASE_CREDENTIALS_PATH=/workspace/firebase-key.json
+      - SEED_DEFAULT_DATA=true
     depends_on:
       db:
         condition: service_healthy
@@ -36,6 +42,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - golden_network
+
+  adminer:
+    image: adminer:latest
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
     networks:
       - golden_network
 

@@ -1,9 +1,10 @@
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import security
+from app.core.config import settings
 from app.models.user import User
 from app.repositories.user import UserRepository
-from app.schemas.user import UserCreate, LoginRequest
+from app.schemas.user import DeviceTokenUpdate, UserCreate, LoginRequest
 
 
 class AuthService:
@@ -24,6 +25,7 @@ class AuthService:
             "name": user_in.name,
             "email": user_in.email,
             "phone": user_in.phone,
+            "role": settings.DEFAULT_USER_ROLE,
             "password_hash": security.get_password_hash(user_in.password),
             "fcm_token": user_in.fcm_token,
         }
@@ -36,3 +38,6 @@ class AuthService:
         if not security.verify_password(login_in.password, user.password_hash):
             return None
         return user
+
+    async def update_fcm_token(self, user: User, token_in: DeviceTokenUpdate) -> User:
+        return await self.user_repo.update(user, {"fcm_token": token_in.fcm_token})

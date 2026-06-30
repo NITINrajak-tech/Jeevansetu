@@ -15,6 +15,31 @@ class ConnectionManager:
         self.pubsub_tasks: Dict[str, asyncio.Task] = {}
         # Redis client for subscriptions
         self.redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+        # Active government dashboard connections
+        self.gov_connections: Set[WebSocket] = set()
+
+    async def connect_gov(self, websocket: WebSocket):
+        await websocket.accept()
+        self.gov_connections.add(websocket)
+        logger.info(f"Gov dashboard client connected. Active connections: {len(self.gov_connections)}")
+
+    async def disconnect_gov(self, websocket: WebSocket):
+        self.gov_connections.discard(websocket)
+        logger.info(f"Gov dashboard client disconnected. Remaining connections: {len(self.gov_connections)}")
+
+    async def broadcast_gov(self, message: dict):
+        if not self.gov_connections:
+            return
+        logger.info(f"Broadcasting message to {len(self.gov_connections)} Gov clients: {message}")
+        closed_sockets = []
+        for connection in self.gov_connections:
+            try:
+                await connection.send_json(message)
+            except Exception as e:
+                logger.error(f"Error broadcasting to Gov socket: {e}")
+                closed_sockets.append(connection)
+        for socket in closed_sockets:
+            await self.disconnect_gov(socket)
 
     async def connect(self, websocket: WebSocket, user_id: str):
         await websocket.accept()

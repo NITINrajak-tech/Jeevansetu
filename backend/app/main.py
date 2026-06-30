@@ -5,7 +5,7 @@ from sqlalchemy import select
 from app.core.config import settings
 from app.core.logging import logger
 from app.db.session import SessionLocal
-from app.models.hospital import Hospital
+from app.db.seed import seed_default_data
 from app.utils.rate_limiter import RateLimitMiddleware
 from app.ai.model_service import AISeverityService
 
@@ -42,53 +42,10 @@ async def lifespan(app: FastAPI):
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
 
-    # Seed mock hospitals database entries if table is empty
-    async with SessionLocal() as session:
-        try:
-            result = await session.execute(select(Hospital))
-            count = len(result.scalars().all())
-            if count == 0:
-                logger.info("Seeding database with default emergency trauma hospitals...")
-                mock_hospitals = [
-                    Hospital(
-                        name="Apex Trauma Center (Level 1)",
-                        latitude=12.971598,
-                        longitude=77.594566,
-                        trauma_level=1,
-                        available_beds=10,
-                        ventilators=6,
-                    ),
-                    Hospital(
-                        name="City General Hospital (Level 2)",
-                        latitude=12.982598,
-                        longitude=77.601566,
-                        trauma_level=2,
-                        available_beds=15,
-                        ventilators=2,
-                    ),
-                    Hospital(
-                        name="St. Jude Clinic (Level 3)",
-                        latitude=12.961598,
-                        longitude=77.584566,
-                        trauma_level=3,
-                        available_beds=8,
-                        ventilators=1,
-                    ),
-                    Hospital(
-                        name="Metro SuperSpecialty Hospital",
-                        latitude=12.991598,
-                        longitude=77.624566,
-                        trauma_level=1,
-                        available_beds=3,
-                        ventilators=10,
-                    ),
-                ]
-                session.add_all(mock_hospitals)
-                await session.commit()
-                logger.info("Database seeding successfully completed.")
-        except Exception as e:
-            logger.error(f"Error seeding database: {e}")
-            await session.rollback()
+    # Seed production defaults when enabled.
+    if settings.SEED_DEFAULT_DATA:
+        async with SessionLocal() as session:
+            await seed_default_data(session)
 
     yield
     # Shutdown logic

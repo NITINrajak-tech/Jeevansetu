@@ -71,6 +71,24 @@ class AmbulanceService:
         amb.status = "dispatched"
         self.db.add(amb)
         await self.db.flush()
+
+        # Broadcast to connected government dashboards via WebSocket
+        try:
+            from app.websocket.connection_manager import manager
+            await manager.broadcast_gov({
+                "type": "ambulance_dispatched",
+                "accident_id": str(accident_id),
+                "ambulance_id": str(amb.id),
+                "ambulance_name": amb.name,
+                "license_plate": amb.license_plate,
+                "ambulance_lat": amb.latitude,
+                "ambulance_lng": amb.longitude,
+                "status": amb.status,
+            })
+        except Exception as ws_exc:
+            from app.core.logging import logger
+            logger.error(f"WebSocket broadcast failed for ambulance dispatch: {ws_exc}")
+
         return amb
 
     async def get_eta(self, accident_id: str) -> Optional[AmbulanceETAResponse]:

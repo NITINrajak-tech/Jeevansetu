@@ -8,6 +8,7 @@ class UserBase(BaseModel):
     name: str
     email: EmailStr
     phone: str
+    role: str = "user"
     fcm_token: Optional[str] = None
 
 
@@ -19,6 +20,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    role: Optional[str] = None
     fcm_token: Optional[str] = None
     password: Optional[str] = None
 
@@ -42,9 +44,14 @@ class TokenData(BaseModel):
     type: Optional[str] = None
 
 
+class DeviceTokenUpdate(BaseModel):
+    fcm_token: str
+
+
 class LoginRequest(BaseModel):
     email_or_phone: str
     password: str
+    fcm_token: Optional[str] = None
 
 
 class RefreshTokenRequest(BaseModel):

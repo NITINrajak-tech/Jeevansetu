@@ -19,6 +19,8 @@ class AccidentUpdate(BaseModel):
     severity: str | None = None
     risk_score: int | None = None
     status: str | None = None
+    assigned_volunteer_id: UUID | None = None
+    volunteer_status: str | None = None
 
 
 class AccidentResponse(AccidentBase):
@@ -27,6 +29,8 @@ class AccidentResponse(AccidentBase):
     severity: str
     risk_score: int
     status: str
+    assigned_volunteer_id: UUID | None = None
+    volunteer_status: str = "searching"
     created_at: datetime
 
     class Config:
