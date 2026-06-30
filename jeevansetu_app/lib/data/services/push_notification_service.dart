@@ -1,4 +1,5 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -6,12 +7,33 @@ import '../../core/router/app_router.dart';
 
 class PushNotificationService {
   static Future<void> initialize() async {
-    FirebaseMessaging.onMessage.listen(_handleMessage);
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+    if (kIsWeb) {
+      return;
+    }
 
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      _handleMessage(initialMessage);
+    FirebaseMessaging? messaging;
+
+    try {
+      messaging = FirebaseMessaging.instance;
+    } catch (_) {
+      messaging = null;
+    }
+
+    if (messaging == null) {
+      return;
+    }
+
+    try {
+      FirebaseMessaging.onMessage.listen(_handleMessage);
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleMessage);
+
+      final initialMessage = await messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleMessage(initialMessage);
+      }
+    } catch (_) {
+      // Firebase messaging is unavailable in this environment or Firebase is not configured.
+      // The app should still run without push notification support.
     }
   }
 

@@ -1,0 +1,2 @@
+[2026-06-28 12:47:31,500] WARNING [golden_minute.<module>:24] Local PostgreSQL on port 5432 is down. Falling back to SQLite: golden_minute.db
+[2026-06-28 12:47:33,378] WARNING [golden_minute.<module>:18] Firebase key not found at /workspace/firebase-key.json. Running FCM in MOCK logging mode.

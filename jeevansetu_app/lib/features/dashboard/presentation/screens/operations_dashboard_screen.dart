@@ -165,6 +165,7 @@ class _OperationsDashboardScreenState
           ),
         ),
       ),
+    ),
     );
   }
 

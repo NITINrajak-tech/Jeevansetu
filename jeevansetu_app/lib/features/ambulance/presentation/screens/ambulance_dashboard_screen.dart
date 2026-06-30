@@ -1,13 +1,17 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../../../core/constants/app_constants.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/gradient_card.dart';
 import '../../../../data/services/ambulance_api.dart';
+import '../../../../data/services/gov_api.dart';
 
 // ── Ambulance Dashboard Screen ────────────────────────────────────────────────
 
@@ -22,45 +26,67 @@ class AmbulanceDashboardScreen extends ConsumerStatefulWidget {
 class _AmbulanceDashboardScreenState
     extends ConsumerState<AmbulanceDashboardScreen>
     with SingleTickerProviderStateMixin {
-  final _ambulanceIdController = TextEditingController(
-      text: '00000000-0000-0000-0000-000000000001');
-  final _accidentIdController = TextEditingController(text: 'INC001');
   final _api = AmbulanceApi();
+  final _govApi = GovApi();
 
   Map<String, dynamic>? _etaResponse;
   List<Map<String, dynamic>> _ambulances = [];
+  List<Map<String, dynamic>> _activeAccidents = [];
+  String? _selectedAccidentId;
+  String? _selectedAmbulanceId;
   String? _message;
   bool _busy = false;
   bool _loadingAmbulances = false;
+  bool _loadingAccidents = false;
+  Timer? _etaPollTimer;
   late final TabController _tabController;
+  late final MapController _mapController;
 
-  // Mock coordinates — will come from API response in production.
   LatLng _ambulanceLoc = const LatLng(28.6100, 77.2050);
-  LatLng _incidentLoc = const LatLng(28.6139, 77.2090);
+  LatLng _incidentLoc = LatLng(
+    AppConstants.mockLatitude,
+    AppConstants.mockLongitude,
+  );
   LatLng _hospitalLoc = const LatLng(28.6220, 77.2100);
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _loadAmbulances();
+    _mapController = MapController();
+    _loadData();
   }
 
   @override
   void dispose() {
-    _ambulanceIdController.dispose();
-    _accidentIdController.dispose();
+    _etaPollTimer?.cancel();
     _tabController.dispose();
+    _mapController.dispose();
     super.dispose();
   }
 
   // ── API calls ─────────────────────────────────────────────────────────────
 
+  Future<void> _loadData() async {
+    await Future.wait([_loadAmbulances(), _loadActiveAccidents()]);
+  }
+
   Future<void> _loadAmbulances() async {
     setState(() => _loadingAmbulances = true);
     try {
       final data = await _api.listAmbulances();
-      setState(() => _ambulances = data);
+      if (!mounted) return;
+      setState(() {
+        _ambulances = data;
+        if (_selectedAmbulanceId == null) {
+          final available = data.where(
+            (a) => (a['status'] ?? 'available') == 'available',
+          );
+          if (available.isNotEmpty) {
+            _selectedAmbulanceId = available.first['id']?.toString();
+          }
+        }
+      });
     } catch (_) {
       // Ignore — show empty state.
     } finally {
@@ -68,52 +94,149 @@ class _AmbulanceDashboardScreenState
     }
   }
 
+  Future<void> _loadActiveAccidents() async {
+    setState(() => _loadingAccidents = true);
+    try {
+      final payload = await _govApi.fetchOperationsDashboard();
+      final operations = payload['operations'] as Map<String, dynamic>?;
+      final incidents = (operations?['active_incidents'] as List<dynamic>? ??
+              const [])
+          .whereType<Map<String, dynamic>>()
+          .toList();
+
+      if (!mounted) return;
+      setState(() {
+        _activeAccidents = incidents;
+        if (_selectedAccidentId == null && incidents.isNotEmpty) {
+          _selectedAccidentId = incidents.first['incident_id']?.toString();
+          _applyIncidentToMap(incidents.first);
+        }
+      });
+    } catch (_) {
+      // Non-gov users may not have access — keep manual entry fallback.
+    } finally {
+      if (mounted) setState(() => _loadingAccidents = false);
+    }
+  }
+
+  void _applyIncidentToMap(Map<String, dynamic> incident) {
+    final lat = (incident['latitude'] as num?)?.toDouble();
+    final lng = (incident['longitude'] as num?)?.toDouble();
+    if (lat == null || lng == null) return;
+
+    setState(() {
+      _incidentLoc = LatLng(lat, lng);
+    });
+    _mapController.move(_incidentLoc, _mapController.camera.zoom);
+  }
+
+  void _onAccidentSelected(String? incidentId) {
+    if (incidentId == null) return;
+    final incident = _activeAccidents.firstWhere(
+      (item) => item['incident_id']?.toString() == incidentId,
+      orElse: () => const {},
+    );
+    setState(() => _selectedAccidentId = incidentId);
+    if (incident.isNotEmpty) {
+      _applyIncidentToMap(incident);
+    }
+  }
+
+  void _applyEtaToMap(Map<String, dynamic> response) {
+    if (response['ambulance_lat'] != null && response['ambulance_lng'] != null) {
+      _ambulanceLoc = LatLng(
+        (response['ambulance_lat'] as num).toDouble(),
+        (response['ambulance_lng'] as num).toDouble(),
+      );
+    }
+    if (response['incident_lat'] != null && response['incident_lng'] != null) {
+      _incidentLoc = LatLng(
+        (response['incident_lat'] as num).toDouble(),
+        (response['incident_lng'] as num).toDouble(),
+      );
+    }
+    if (response['hospital_lat'] != null && response['hospital_lng'] != null) {
+      _hospitalLoc = LatLng(
+        (response['hospital_lat'] as num).toDouble(),
+        (response['hospital_lng'] as num).toDouble(),
+      );
+    }
+    _mapController.move(_ambulanceLoc, _mapController.camera.zoom);
+  }
+
   Future<void> _fetchEta() async {
+    final accidentId = _selectedAccidentId;
+    if (accidentId == null || accidentId.isEmpty) {
+      setState(() => _message = 'Select an active accident first.');
+      return;
+    }
+
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
-      final response = await _api.getEta(_accidentIdController.text.trim());
+      final response = await _api.getEta(accidentId);
+      if (!mounted) return;
       setState(() {
         _etaResponse = response;
-        // Update map locations from response if available.
-        if (response['ambulance_lat'] != null) {
-          _ambulanceLoc = LatLng(
-            (response['ambulance_lat'] as num).toDouble(),
-            (response['ambulance_lng'] as num).toDouble(),
-          );
-        }
-        if (response['incident_lat'] != null) {
-          _incidentLoc = LatLng(
-            (response['incident_lat'] as num).toDouble(),
-            (response['incident_lng'] as num).toDouble(),
-          );
-        }
+        _applyEtaToMap(response);
       });
+      _startEtaPolling(accidentId);
     } catch (error) {
-      setState(() => _message = error.toString());
+      if (mounted) setState(() => _message = error.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  void _startEtaPolling(String accidentId) {
+    _etaPollTimer?.cancel();
+    _etaPollTimer = Timer.periodic(const Duration(seconds: 12), (_) async {
+      try {
+        final response = await _api.getEta(accidentId);
+        if (!mounted) return;
+        setState(() {
+          _etaResponse = response;
+          _applyEtaToMap(response);
+        });
+      } catch (_) {
+        // Keep last known ETA on transient errors.
+      }
+    });
+  }
+
   Future<void> _dispatch() async {
+    final accidentId = _selectedAccidentId;
+    final ambulanceId = _selectedAmbulanceId;
+    if (accidentId == null || accidentId.isEmpty) {
+      setState(() => _message = 'Select an active accident first.');
+      return;
+    }
+    if (ambulanceId == null || ambulanceId.isEmpty) {
+      setState(() => _message = 'Select an available ambulance first.');
+      return;
+    }
+
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
       final response = await _api.dispatch(
-        ambulanceId: _ambulanceIdController.text.trim(),
-        accidentId: _accidentIdController.text.trim(),
+        ambulanceId: ambulanceId,
+        accidentId: accidentId,
       );
+      if (!mounted) return;
       setState(() {
         _etaResponse = response;
         _message = '✓ Ambulance dispatched successfully.';
       });
+      await _fetchEta();
+      _tabController.animateTo(0);
+      await _loadAmbulances();
     } catch (error) {
-      setState(() => _message = error.toString());
+      if (mounted) setState(() => _message = error.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -132,6 +255,13 @@ class _AmbulanceDashboardScreenState
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ambulance Dispatch'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh_rounded),
+            tooltip: 'Refresh fleet & incidents',
+            onPressed: _busy ? null : _loadData,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
@@ -160,7 +290,6 @@ class _AmbulanceDashboardScreenState
   Widget _buildMapTab(bool isDark, Color titleColor, Color subtitleColor) {
     return Column(
       children: [
-        // Map fills top 55% of screen.
         Expanded(
           flex: 55,
           child: Padding(
@@ -168,6 +297,7 @@ class _AmbulanceDashboardScreenState
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: FlutterMap(
+                mapController: _mapController,
                 options: MapOptions(
                   initialCenter: _incidentLoc,
                   initialZoom: 14,
@@ -181,13 +311,11 @@ class _AmbulanceDashboardScreenState
                   ),
                   PolylineLayer(
                     polylines: [
-                      // Ambulance → Incident
                       Polyline(
                         points: [_ambulanceLoc, _incidentLoc],
                         color: const Color(0xFFFB8C00),
                         strokeWidth: 4,
                       ),
-                      // Incident → Hospital
                       Polyline(
                         points: [_incidentLoc, _hospitalLoc],
                         color: Colors.redAccent,
@@ -217,8 +345,6 @@ class _AmbulanceDashboardScreenState
             ),
           ),
         ),
-
-        // ETA info strip.
         Expanded(
           flex: 45,
           child: SingleChildScrollView(
@@ -226,6 +352,8 @@ class _AmbulanceDashboardScreenState
             child: Column(
               children: [
                 _buildEtaStrip(isDark, titleColor, subtitleColor),
+                const SizedBox(height: 12),
+                _buildActiveAccidentsList(isDark, titleColor, subtitleColor),
                 const SizedBox(height: 12),
                 _buildAmbulanceList(isDark, titleColor, subtitleColor),
               ],
@@ -291,8 +419,8 @@ class _AmbulanceDashboardScreenState
             Expanded(
               child: Text(
                 'Dispatch an ambulance to see live ETA and route on the map.',
-                style: AppTextStyles.bodySmall
-                    .copyWith(color: Colors.white70),
+                style:
+                    AppTextStyles.bodySmall.copyWith(color: Colors.white70),
               ),
             ),
           ],
@@ -302,6 +430,8 @@ class _AmbulanceDashboardScreenState
 
     final eta = _etaResponse!['eta_minutes'] ?? _etaResponse!['eta'] ?? '—';
     final status = _etaResponse!['status'] ?? 'dispatched';
+    final distance =
+        _etaResponse!['distance_km'] ?? _etaResponse!['distance'] ?? '—';
 
     return GradientCard(
       padding: const EdgeInsets.all(16),
@@ -332,6 +462,10 @@ class _AmbulanceDashboardScreenState
                 Text('ETA: $eta min',
                     style: AppTextStyles.cardTitle
                         .copyWith(color: Colors.white)),
+                const SizedBox(height: 4),
+                Text('Distance: $distance km',
+                    style: AppTextStyles.bodySmall
+                        .copyWith(color: Colors.white70)),
                 const SizedBox(height: 4),
                 _statusBadge(status),
               ],
@@ -372,6 +506,73 @@ class _AmbulanceDashboardScreenState
     );
   }
 
+  Widget _buildActiveAccidentsList(
+      bool isDark, Color titleColor, Color subtitleColor) {
+    if (_loadingAccidents) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_activeAccidents.isEmpty) {
+      return GradientCard(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          'No active accidents from backend. Use the Dispatch tab to enter an incident ID manually.',
+          style: AppTextStyles.bodySmall.copyWith(color: Colors.white70),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Active Accidents',
+            style: AppTextStyles.cardTitle.copyWith(color: titleColor)),
+        const SizedBox(height: 8),
+        for (final incident in _activeAccidents)
+          _accidentTile(incident, isDark, titleColor),
+      ],
+    );
+  }
+
+  Widget _accidentTile(
+      Map<String, dynamic> incident, bool isDark, Color titleColor) {
+    final id = incident['incident_id']?.toString() ?? '—';
+    final severity = incident['severity']?.toString() ?? 'Unknown';
+    final isSelected = _selectedAccidentId == id;
+
+    return GradientCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      child: InkWell(
+        onTap: () => _onAccidentSelected(id),
+        borderRadius: BorderRadius.circular(12),
+        child: Row(
+          children: [
+            Icon(
+              Icons.warning_amber_rounded,
+              color: isSelected ? Colors.redAccent : Colors.orange,
+              size: 28,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(id,
+                      style: AppTextStyles.bodyMedium.copyWith(
+                          color: Colors.white, fontWeight: FontWeight.w600)),
+                  Text('$severity • ${incident['victim_status'] ?? 'pending'}',
+                      style: AppTextStyles.bodySmall
+                          .copyWith(color: Colors.white54)),
+                ],
+              ),
+            ),
+            if (isSelected)
+              const Icon(Icons.check_circle_rounded, color: Colors.greenAccent),
+          ],
+        ),
+      ),
+    ).animate().slideX(begin: 0.2, duration: 200.ms);
+  }
+
   Widget _buildAmbulanceList(
       bool isDark, Color titleColor, Color subtitleColor) {
     if (_loadingAmbulances) {
@@ -399,7 +600,9 @@ class _AmbulanceDashboardScreenState
   Widget _ambulanceTile(Map<String, dynamic> amb, bool isDark) {
     final status = amb['status'] ?? 'available';
     final plate = amb['license_plate'] ?? amb['id'] ?? '—';
+    final id = amb['id']?.toString() ?? '';
     final isAvailable = status == 'available';
+    final isSelected = _selectedAmbulanceId == id;
 
     return GradientCard(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -427,11 +630,15 @@ class _AmbulanceDashboardScreenState
           TextButton(
             onPressed: isAvailable
                 ? () {
-                    _ambulanceIdController.text = amb['id'].toString();
+                    setState(() => _selectedAmbulanceId = id);
                     _tabController.animateTo(1);
                   }
                 : null,
-            child: Text(isAvailable ? 'Dispatch' : 'Busy'),
+            child: Text(isSelected
+                ? 'Selected'
+                : isAvailable
+                    ? 'Select'
+                    : 'Busy'),
           ),
         ],
       ),
@@ -441,6 +648,10 @@ class _AmbulanceDashboardScreenState
   // ── Dispatch Tab ──────────────────────────────────────────────────────────
 
   Widget _buildDispatchTab(bool isDark, Color titleColor, Color subtitleColor) {
+    final availableAmbulances = _ambulances
+        .where((a) => (a['status'] ?? 'available') == 'available')
+        .toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(
@@ -450,7 +661,7 @@ class _AmbulanceDashboardScreenState
               style: AppTextStyles.screenTitle.copyWith(color: titleColor)),
           const SizedBox(height: 6),
           Text(
-            'Enter the accident ID and ambulance UUID to dispatch.',
+            'Choose an active accident and available ambulance from the backend.',
             style: AppTextStyles.bodyMedium.copyWith(color: subtitleColor),
           ),
           const SizedBox(height: 20),
@@ -463,22 +674,57 @@ class _AmbulanceDashboardScreenState
                     style: AppTextStyles.cardTitle
                         .copyWith(color: Colors.white)),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _accidentIdController,
-                  style: const TextStyle(color: Colors.white),
+                DropdownButtonFormField<String>(
+                  value: _selectedAccidentId,
+                  dropdownColor: AppColors.surfaceDarkElevated,
                   decoration: const InputDecoration(
-                    labelText: 'Accident ID',
+                    labelText: 'Active Accident',
                     prefixIcon: Icon(Icons.warning_amber_rounded),
                   ),
+                  items: [
+                    if (_activeAccidents.isEmpty && _selectedAccidentId != null)
+                      DropdownMenuItem(
+                        value: _selectedAccidentId,
+                        child: Text(_selectedAccidentId!),
+                      ),
+                    for (final incident in _activeAccidents)
+                      DropdownMenuItem(
+                        value: incident['incident_id']?.toString(),
+                        child: Text(
+                          '${incident['incident_id']} • ${incident['severity'] ?? 'Unknown'}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _loadingAccidents ? null : _onAccidentSelected,
                 ),
                 const SizedBox(height: 14),
-                TextField(
-                  controller: _ambulanceIdController,
-                  style: const TextStyle(color: Colors.white),
+                DropdownButtonFormField<String>(
+                  value: _selectedAmbulanceId,
+                  dropdownColor: AppColors.surfaceDarkElevated,
                   decoration: const InputDecoration(
-                    labelText: 'Ambulance UUID',
+                    labelText: 'Available Ambulance',
                     prefixIcon: Icon(Icons.local_taxi_rounded),
                   ),
+                  items: [
+                    if (availableAmbulances.isEmpty &&
+                        _selectedAmbulanceId != null)
+                      DropdownMenuItem(
+                        value: _selectedAmbulanceId,
+                        child: Text(_selectedAmbulanceId!),
+                      ),
+                    for (final amb in availableAmbulances)
+                      DropdownMenuItem(
+                        value: amb['id']?.toString(),
+                        child: Text(
+                          '${amb['license_plate'] ?? amb['id']} • ${amb['status'] ?? 'available'}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  onChanged: _loadingAmbulances
+                      ? null
+                      : (value) => setState(() => _selectedAmbulanceId = value),
                 ),
                 const SizedBox(height: 18),
                 Row(
