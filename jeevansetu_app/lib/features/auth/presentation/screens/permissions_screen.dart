@@ -8,12 +8,52 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/gradient_card.dart';
 import '../../../../core/router/app_router.dart';
 import '../../providers/auth_provider.dart';
+import '../../../monitoring/providers/sensor_monitor_provider.dart';
+import '../../../../data/services/device_token_service.dart';
 
-class PermissionsScreen extends ConsumerWidget {
+class PermissionsScreen extends ConsumerStatefulWidget {
   const PermissionsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PermissionsScreen> createState() => _PermissionsScreenState();
+}
+
+class _PermissionsScreenState extends ConsumerState<PermissionsScreen> {
+  final _deviceTokenService = DeviceTokenService();
+
+  Future<bool> _grantLocationPermission() async {
+    final allowed = await ref.read(sensorMonitorProvider.notifier).ensureLocationPermission();
+    if (allowed) {
+      ref.read(authProvider.notifier).toggleGpsPermission();
+    }
+    return allowed;
+  }
+
+  Future<bool> _grantNotificationPermission() async {
+    final granted = await _deviceTokenService.requestNotificationPermission();
+    if (granted) {
+      ref.read(authProvider.notifier).toggleNotificationsPermission();
+      try {
+        await _deviceTokenService.syncTokenToBackend();
+      } catch (_) {}
+    }
+    return granted;
+  }
+
+  Future<void> _grantAll() async {
+    final locationGranted = await _grantLocationPermission();
+    if (!ref.read(authProvider).hasSensorsPermission) {
+      ref.read(authProvider.notifier).toggleSensorsPermission();
+    }
+    final sensorsGranted = ref.read(authProvider).hasSensorsPermission;
+    final notificationsGranted = await _grantNotificationPermission();
+    if (locationGranted && sensorsGranted && notificationsGranted && mounted) {
+      context.goNamed(AppRoutes.home);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authProvider);
     final authNotifier = ref.read(authProvider.notifier);
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -59,7 +99,13 @@ class PermissionsScreen extends ConsumerWidget {
                         icon: Icons.location_on_rounded,
                         iconColor: AppColors.infoBlue,
                         isGranted: authState.hasGpsPermission,
-                        onChanged: (_) => authNotifier.toggleGpsPermission(),
+                        onChanged: (value) {
+                          if (value) {
+                            _grantLocationPermission();
+                          } else {
+                            authNotifier.toggleGpsPermission();
+                          }
+                        },
                       ).animate().fade(delay: 100.ms).slideX(begin: 0.1, end: 0),
 
                       const SizedBox(height: 16),
@@ -83,7 +129,13 @@ class PermissionsScreen extends ConsumerWidget {
                         icon: Icons.notifications_active_rounded,
                         iconColor: AppColors.sosRed,
                         isGranted: authState.hasNotificationsPermission,
-                        onChanged: (_) => authNotifier.toggleNotificationsPermission(),
+                        onChanged: (value) {
+                          if (value) {
+                            _grantNotificationPermission();
+                          } else {
+                            authNotifier.toggleNotificationsPermission();
+                          }
+                        },
                       ).animate().fade(delay: 300.ms).slideX(begin: 0.1, end: 0),
                     ],
                   ),
@@ -96,7 +148,7 @@ class PermissionsScreen extends ConsumerWidget {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton(
-                          onPressed: () => authNotifier.grantAllPermissions(),
+                          onPressed: _grantAll,
                           child: const Text('Grant All Permissions'),
                         ),
                       ),

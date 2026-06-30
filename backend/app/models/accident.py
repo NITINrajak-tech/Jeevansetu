@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 from datetime import datetime, timezone
 from sqlalchemy import Float, Integer, String, DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -22,12 +23,17 @@ class Accident(Base):
     severity: Mapped[str] = mapped_column(String(50), default="unknown")
     risk_score: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, resolved
+    assigned_volunteer_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("volunteers.id", ondelete="SET NULL"), nullable=True
+    )
+    volunteer_status: Mapped[str] = mapped_column(String(50), default="searching")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="accidents")
+    assigned_volunteer: Mapped[Optional["Volunteer"]] = relationship("Volunteer")
     sos_request: Mapped["SOSRequest"] = relationship(
         "SOSRequest", back_populates="accident", cascade="all, delete-orphan", uselist=False
     )

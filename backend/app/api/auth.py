@@ -12,6 +12,7 @@ from app.schemas.user import (
     LoginRequest,
     Token,
     RefreshTokenRequest,
+    DeviceTokenUpdate,
 )
 from app.services.auth import AuthService
 
@@ -37,6 +38,9 @@ async def login(login_in: LoginRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email/phone or password",
         )
+
+    if login_in.fcm_token:
+        await auth_service.update_fcm_token(user, DeviceTokenUpdate(fcm_token=login_in.fcm_token))
 
     access_token = security.create_access_token(user.id)
     refresh_token = security.create_refresh_token(user.id)
@@ -77,3 +81,13 @@ async def refresh(refresh_in: RefreshTokenRequest):
 @router.get("/me", response_model=UserResponse)
 async def read_me(current_user: User = Depends(deps.get_current_user)):
     return current_user
+
+
+@router.post("/fcm-token", response_model=UserResponse)
+async def update_fcm_token(
+    token_in: DeviceTokenUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    auth_service = AuthService(db)
+    return await auth_service.update_fcm_token(current_user, token_in)

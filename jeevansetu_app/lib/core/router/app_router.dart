@@ -15,6 +15,9 @@ import '../../features/tracking/presentation/screens/live_tracking_screen.dart';
 import '../../features/hospital/presentation/screens/hospital_recommendation_screen.dart';
 import '../../features/profile/presentation/screens/profile_screen.dart';
 import '../../features/dashboard/presentation/screens/operations_dashboard_screen.dart';
+import '../../features/ambulance/presentation/screens/ambulance_dashboard_screen.dart';
+
+final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Route name constants
 class AppRoutes {
@@ -30,6 +33,7 @@ class AppRoutes {
   static const String hospitals = 'hospitals';
   static const String dashboard = 'dashboard';
   static const String profile = 'profile';
+  static const String ambulanceDashboard = 'ambulance-dashboard';
 }
 
 /// Shell widget for bottom navigation
@@ -134,6 +138,7 @@ class _MainShellState extends State<_MainShell> {
 /// GoRouter configuration provider
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
+    navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
     debugLogDiagnostics: true,
     routes: [
@@ -207,6 +212,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/tracking',
         name: AppRoutes.liveTracking,
         builder: (context, state) => const LiveTrackingScreen(),
+      ),
+      GoRoute(
+        path: '/ambulance-dashboard',
+        name: AppRoutes.ambulanceDashboard,
+        builder: (context, state) => const AmbulanceDashboardScreen(),
       ),
     ],
   );

@@ -32,13 +32,27 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
     super.dispose();
   }
 
-  void _handleRegister() {
-    if (_formKey.currentState?.validate() ?? false) {
-      ref.read(authProvider.notifier).signup(
-            _nameController.text,
-            _phoneController.text,
+  bool _loading = false;
+
+  Future<void> _handleRegister() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _loading = true);
+    try {
+      await ref.read(authProvider.notifier).signup(
+            _nameController.text.trim(),
+            _phoneController.text.trim(),
           );
+      if (!mounted) return;
+      final errMsg = ref.read(authProvider).errorMessage;
+      if (errMsg != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errMsg), backgroundColor: AppColors.sosRed),
+        );
+        return;
+      }
       context.goNamed(AppRoutes.permissions);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -157,8 +171,16 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: _handleRegister,
-                            child: const Text('Register & Continue'),
+                            onPressed: _loading ? null : _handleRegister,
+                            child: _loading
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: Colors.white),
+                                  )
+                                : const Text('Register & Continue'),
                           ),
                         ),
                       ],

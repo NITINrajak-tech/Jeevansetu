@@ -1,220 +1,191 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
-import '../../../../core/theme/app_colors.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 
-class MapPlaceholder extends StatelessWidget {
-  final double ambulanceLat;
-  final double ambulanceLng;
-  final double userLat;
-  final double userLng;
-
+/// A live OpenStreetMap map widget that shows victim, responders, and hospital.
+/// Replaces the old CustomPainter placeholder.
+class MapPlaceholder extends StatefulWidget {
   const MapPlaceholder({
     super.key,
-    required this.ambulanceLat,
-    required this.ambulanceLng,
-    required this.userLat,
-    required this.userLng,
+    this.victimLatitude = 28.6139,
+    this.victimLongitude = 77.2090,
+    this.hospitalLatitude = 28.6220,
+    this.hospitalLongitude = 77.2100,
+    this.responderLocations = const [],
+    this.ambulanceLocations = const [],
+    this.showRoute = true,
   });
+
+  final double victimLatitude;
+  final double victimLongitude;
+  final double hospitalLatitude;
+  final double hospitalLongitude;
+
+  /// List of [lat, lng] pairs for volunteer responders.
+  final List<List<double>> responderLocations;
+
+  /// List of [lat, lng] pairs for ambulances.
+  final List<List<double>> ambulanceLocations;
+
+  final bool showRoute;
+
+  @override
+  State<MapPlaceholder> createState() => _MapPlaceholderState();
+}
+
+class _MapPlaceholderState extends State<MapPlaceholder> {
+  late final MapController _mapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  LatLng get _victim => LatLng(widget.victimLatitude, widget.victimLongitude);
+  LatLng get _hospital =>
+      LatLng(widget.hospitalLatitude, widget.hospitalLongitude);
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Container(
-      color: isDark ? const Color(0xFF0F141C) : const Color(0xFFF1F5F9),
-      child: Stack(
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          initialCenter: _victim,
+          initialZoom: 14,
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.all,
+          ),
+        ),
         children: [
-          // Styled Map Canvas
-          Positioned.fill(
-            child: CustomPaint(
-              painter: _MapCanvasPainter(
-                isDark: isDark,
-                ambulanceLat: ambulanceLat,
-                ambulanceLng: ambulanceLng,
-                userLat: userLat,
-                userLng: userLng,
-              ),
+          // ── Base tile layer (OpenStreetMap) ──────────────────────────────
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.jeevansetu.app',
+            maxNativeZoom: 19,
+          ),
+
+          // ── Route polyline ───────────────────────────────────────────────
+          if (widget.showRoute)
+            PolylineLayer(
+              polylines: [
+                Polyline(
+                  points: [_victim, _hospital],
+                  strokeWidth: 4,
+                  color: Colors.redAccent.withOpacity(0.85),
+                  isDotted: false,
+                ),
+              ],
             ),
+
+          // ── Markers ───────────────────────────────────────────────────────
+          MarkerLayer(
+            markers: [
+              // Victim
+              _buildMarker(
+                point: _victim,
+                color: const Color(0xFFE53935),
+                icon: Icons.personal_injury_rounded,
+                label: 'Victim',
+              ),
+
+              // Hospital
+              _buildMarker(
+                point: _hospital,
+                color: const Color(0xFF00897B),
+                icon: Icons.local_hospital_rounded,
+                label: 'Hospital',
+              ),
+
+              // Volunteer responders
+              for (final loc in widget.responderLocations)
+                _buildMarker(
+                  point: LatLng(loc[0], loc[1]),
+                  color: const Color(0xFF1E88E5),
+                  icon: Icons.directions_run_rounded,
+                  label: 'Responder',
+                ),
+
+              // Ambulances
+              for (final loc in widget.ambulanceLocations)
+                _buildMarker(
+                  point: LatLng(loc[0], loc[1]),
+                  color: const Color(0xFFFB8C00),
+                  icon: Icons.airport_shuttle_rounded,
+                  label: 'Ambulance',
+                ),
+            ],
           ),
-          // User Location Pin
-          _buildMapNode(
-            context: context,
-            label: 'YOU (Victim)',
-            color: AppColors.sosRed,
-            icon: Icons.personal_injury_rounded,
-            leftPercent: 0.75,
-            topPercent: 0.3,
-          ),
-          // Hospital Node
-          _buildMapNode(
-            context: context,
-            label: 'AIIMS Trauma Center',
-            color: AppColors.safeGreen,
-            icon: Icons.local_hospital_rounded,
-            leftPercent: 0.2,
-            topPercent: 0.7,
+
+          // ── Attribution ───────────────────────────────────────────────────
+          RichAttributionWidget(
+            attributions: [
+              TextSourceAttribution(
+                'OpenStreetMap contributors',
+                onTap: () {},
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  Widget _buildMapNode({
-    required BuildContext context,
-    required String label,
+  Marker _buildMarker({
+    required LatLng point,
     required Color color,
     required IconData icon,
-    required double leftPercent,
-    required double topPercent,
+    required String label,
   }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final left = constraints.maxWidth * leftPercent - 24;
-        final top = constraints.maxHeight * topPercent - 24;
-
-        return Positioned(
-          left: left,
-          top: top,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.85),
-                  borderRadius: BorderRadius.circular(6),
+    return Marker(
+      point: point,
+      width: 48,
+      height: 56,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: color.withOpacity(0.45),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
-                child: Text(
-                  label,
-                  style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: color.withOpacity(0.25),
-                  shape: BoxShape.circle,
-                  border: Border.all(color: color, width: 2),
-                ),
-                child: Icon(icon, color: color, size: 18),
-              ),
-            ],
+              ],
+            ),
+            child: Icon(icon, color: Colors.white, size: 20),
           ),
-        );
-      },
+          const SizedBox(height: 2),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: Colors.black87,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 8,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
-  }
-}
-
-class _MapCanvasPainter extends CustomPainter {
-  final bool isDark;
-  final double ambulanceLat;
-  final double ambulanceLng;
-  final double userLat;
-  final double userLng;
-
-  _MapCanvasPainter({
-    required this.isDark,
-    required this.ambulanceLat,
-    required this.ambulanceLng,
-    required this.userLat,
-    required this.userLng,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final linePaint = Paint()
-      ..color = isDark ? Colors.white.withOpacity(0.06) : Colors.black.withOpacity(0.04)
-      ..strokeWidth = 1.5;
-
-    // Draw Grid Lines
-    const gridSpacing = 30.0;
-    for (double x = 0; x < size.width; x += gridSpacing) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
-    }
-    for (double y = 0; y < size.height; y += gridSpacing) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), linePaint);
-    }
-
-    // Draw Mock Roads
-    final roadPaint = Paint()
-      ..color = isDark ? const Color(0xFF1E293B) : Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 24
-      ..strokeCap = StrokeCap.round;
-
-    final roadBorderPaint = Paint()
-      ..color = isDark ? Colors.black.withOpacity(0.3) : Colors.black.withOpacity(0.05)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 26
-      ..strokeCap = StrokeCap.round;
-
-    // Hospital point (0.2, 0.7) and User point (0.75, 0.3)
-    final pStart = Offset(size.width * 0.2, size.height * 0.7);
-    final pCorner = Offset(size.width * 0.2, size.height * 0.3);
-    final pEnd = Offset(size.width * 0.75, size.height * 0.3);
-
-    // Draw road borders
-    final path = Path()
-      ..moveTo(pStart.dx, pStart.dy)
-      ..lineTo(pCorner.dx, pCorner.dy)
-      ..lineTo(pEnd.dx, pEnd.dy);
-
-    canvas.drawPath(path, roadBorderPaint);
-    canvas.drawPath(path, roadPaint);
-
-    // Draw Route Navigation Line (Dashed / Active route)
-    final routePaint = Paint()
-      ..color = AppColors.primary
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 6
-      ..strokeCap = StrokeCap.round;
-
-    canvas.drawPath(path, routePaint);
-
-    // Calculate Ambulance Position on the road based on mock coords
-    // Map Lat (28.5672 -> 28.6139) to Y coordinate
-    // Map Lng (77.2100 -> 77.2090) to X coordinate
-    // To make it simple visually, we interpolate on the path:
-    final double rangeLat = 28.6139 - 28.5672;
-    final double currentStep = (ambulanceLat - 28.5672) / rangeLat;
-
-    Offset ambulancePos;
-    if (currentStep < 0.5) {
-      // First leg (vertical)
-      final stepFactor = currentStep * 2;
-      ambulancePos = Offset(pStart.dx, pStart.dy - (pStart.dy - pCorner.dy) * stepFactor);
-    } else {
-      // Second leg (horizontal)
-      final stepFactor = (currentStep - 0.5) * 2;
-      ambulancePos = Offset(pCorner.dx + (pEnd.dx - pCorner.dx) * stepFactor, pCorner.dy);
-    }
-
-    // Draw Ambulance vehicle indicator
-    final ambulancePaint = Paint()
-      ..color = AppColors.infoBlue
-      ..style = PaintingStyle.fill;
-
-    canvas.drawCircle(ambulancePos, 16, ambulancePaint);
-
-    // Dynamic siren rings
-    final sirenPaint = Paint()
-      ..color = AppColors.sosRed.withOpacity(0.4)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    canvas.drawCircle(ambulancePos, 22, sirenPaint);
-
-    // Draw Ambulance Inner Icon Representation (cross)
-    final crossPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 3;
-    canvas.drawLine(Offset(ambulancePos.dx - 5, ambulancePos.dy), Offset(ambulancePos.dx + 5, ambulancePos.dy), crossPaint);
-    canvas.drawLine(Offset(ambulancePos.dx, ambulancePos.dy - 5), Offset(ambulancePos.dx, ambulancePos.dy + 5), crossPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _MapCanvasPainter oldDelegate) {
-    return oldDelegate.ambulanceLat != ambulanceLat || oldDelegate.ambulanceLng != ambulanceLng;
   }
 }

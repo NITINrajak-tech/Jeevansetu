@@ -1,19 +1,33 @@
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.db.session import get_db
 from app.models.user import User
+from app.models.ambulance import Ambulance
 from app.schemas.ambulance import AmbulanceCreate, AmbulanceUpdate, AmbulanceResponse, AmbulanceDispatchInput, AmbulanceETAResponse
 from app.services.ambulances import AmbulanceService
 
 router = APIRouter(prefix="/ambulances", tags=["ambulances"])
+
+admin_or_gov = Depends(deps.require_roles("admin", "gov"))
+
+
+@router.get("", response_model=List[AmbulanceResponse])
+async def list_ambulances(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    result = await db.execute(select(Ambulance))
+    return result.scalars().all()
 
 
 @router.post("/register", response_model=AmbulanceResponse, status_code=status.HTTP_201_CREATED)
 async def register_ambulance(
     amb_in: AmbulanceCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = admin_or_gov,
 ):
     service = AmbulanceService(db)
     try:
@@ -27,7 +41,7 @@ async def update_status(
     license_plate: str,
     amb_up: AmbulanceUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = Depends(deps.get_current_user), # Any registered user (like drivers/vols/admins) can update status
 ):
     service = AmbulanceService(db)
     updated = await service.update_status(license_plate, amb_up)
@@ -43,7 +57,7 @@ async def update_status(
 async def dispatch_ambulance(
     input_in: AmbulanceDispatchInput,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_user),
+    current_user: User = admin_or_gov,
 ):
     service = AmbulanceService(db)
     try:
@@ -66,3 +80,4 @@ async def get_eta(
             detail="No ambulances available or accident record not found",
         )
     return eta
+

@@ -4,7 +4,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api import deps
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.volunteer import VolunteerCreate, VolunteerUpdate, VolunteerResponse, VolunteerNearbyResponse
+from app.schemas.accident import AccidentResponse
+from app.schemas.volunteer import (
+    VolunteerCreate,
+    VolunteerUpdate,
+    VolunteerResponse,
+    VolunteerNearbyResponse,
+    VolunteerAssignmentUpdate,
+)
 from app.services.volunteers import VolunteerService
 
 router = APIRouter(prefix="/volunteers", tags=["volunteers"])
@@ -67,3 +74,24 @@ async def get_volunteer_search_radii(
         "message": "Emergency nearby. Can you help?",
         "radii": await NotificationEngine(db).volunteer_radius_summary(latitude, longitude),
     }
+
+
+@router.post("/{accident_id}/respond", response_model=AccidentResponse)
+async def respond_to_assignment(
+    accident_id: str,
+    assignment_in: VolunteerAssignmentUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_user),
+):
+    service = VolunteerService(db)
+    try:
+        updated = await service.update_assignment_status(accident_id, current_user.phone, assignment_in)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Volunteer assignment or accident not found",
+        )
+    return updated

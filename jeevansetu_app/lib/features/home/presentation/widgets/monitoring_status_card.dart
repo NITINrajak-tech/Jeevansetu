@@ -8,6 +8,7 @@ import '../../../../core/theme/app_text_styles.dart';
 import '../../../../core/widgets/gradient_card.dart';
 import '../../../../core/widgets/status_badge.dart';
 import '../../../../core/router/app_router.dart';
+import '../../../monitoring/providers/sensor_monitor_provider.dart';
 import '../../providers/home_provider.dart';
 
 class MonitoringStatusCard extends ConsumerWidget {
@@ -17,6 +18,7 @@ class MonitoringStatusCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final homeState = ref.watch(homeProvider);
     final homeNotifier = ref.read(homeProvider.notifier);
+    final sensorState = ref.watch(sensorMonitorProvider);
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return GradientCard(
@@ -37,7 +39,7 @@ class MonitoringStatusCard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    homeState.isMonitoring ? 'Scanning sensors...' : 'System offline',
+                    sensorState.isMonitoring ? 'Scanning live sensors...' : 'System offline',
                     style: AppTextStyles.bodySmall.copyWith(
                       color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
                     ),
@@ -45,13 +47,36 @@ class MonitoringStatusCard extends ConsumerWidget {
                 ],
               ),
               StatusBadge(
-                label: homeState.isMonitoring ? 'Active' : 'Paused',
-                type: homeState.isMonitoring ? StatusType.success : StatusType.warning,
-                animate: homeState.isMonitoring,
+                label: sensorState.isMonitoring ? 'Active' : 'Paused',
+                type: sensorState.isMonitoring ? StatusType.success : StatusType.warning,
+                animate: sensorState.isMonitoring,
               ),
             ],
           ),
           const SizedBox(height: 20),
+          if (sensorState.accelerometer != null || sensorState.gyroscope != null) ...[
+            Text(
+              'Accelerometer: ${sensorState.accelerometer?.x.toStringAsFixed(1) ?? '--'} / ${sensorState.accelerometer?.y.toStringAsFixed(1) ?? '--'} / ${sensorState.accelerometer?.z.toStringAsFixed(1) ?? '--'}',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Gyroscope: ${sensorState.gyroscope?.x.toStringAsFixed(1) ?? '--'} / ${sensorState.gyroscope?.y.toStringAsFixed(1) ?? '--'} / ${sensorState.gyroscope?.z.toStringAsFixed(1) ?? '--'}',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'GPS: ${sensorState.latitude?.toStringAsFixed(5) ?? '--'}, ${sensorState.longitude?.toStringAsFixed(5) ?? '--'}  Speed: ${sensorState.speedMps?.toStringAsFixed(1) ?? '--'} m/s',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondaryLight,
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               // Toggle Button

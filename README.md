@@ -142,3 +142,11 @@ flutter run \
 ```
 
 Without `JEEVANSETU_AUTH_TOKEN`, the emergency flow keeps using the local demo fallback. With a valid backend token, the accident alert flow calls `POST /api/ai/pipeline/process`, then confirms safety or escalates through `POST /api/ai/pipeline/{incident_id}/verify`.
+
+## Production Setup Notes
+
+- Add a real Firebase Android config at `jeevansetu_app/android/app/google-services.json`.
+- Add your Firebase service account JSON at the path referenced by `FIREBASE_CREDENTIALS_PATH`.
+- Set `backend/.env` from `backend/.env.production.example` and run Alembic migrations before first launch.
+- Seed data is controlled by `SEED_DEFAULT_DATA`; leave it enabled for first boot, then disable it in production if needed.
+- Real push notification testing still requires a physical Android device signed into Google Play services.
